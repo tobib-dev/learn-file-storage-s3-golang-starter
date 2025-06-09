@@ -47,6 +47,11 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 
 	fileType := fileHeader.Header.Get("Content-Type")
 	fileData, err := io.ReadAll(file)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Unable to read file", err)
+		return
+	}
+
 	dbVideo, err := cfg.db.GetVideo(videoID)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Unable to get video", err)
@@ -66,11 +71,12 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 
 	newURL := fmt.Sprintf("http://localhost:%v/api/thumbnails/%s", cfg.port, videoIDString)
 	dbVideo.ThumbnailURL = &newURL
+	fmt.Println(dbVideo.ThumbnailURL)
 	err = cfg.db.UpdateVideo(dbVideo)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Unable to update video", err)
 		return
 	}
 
-	respondWithJSON(w, http.StatusOK, response{database.Video{}})
+	respondWithJSON(w, http.StatusOK, response{dbVideo})
 }
