@@ -34,8 +34,6 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	fmt.Println("uploading thumbnail for video", videoID, "by user", userID)
-
 	const maxMemory = 10 << 20
 	r.ParseMultipartForm(maxMemory)
 
@@ -46,10 +44,15 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	}
 	defer file.Close()
 
-	fileType := fileHeader.Header.Get("Content-Type")
+	mediaType := fileHeader.Header.Get("Content-Type")
+	if mediaType == "" {
+		respondWithError(w, http.StatusBadRequest, "Missing Content-Type for thumbnail", nil)
+		return
+	}
+
 	fileData, err := io.ReadAll(file)
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Unable to read file", err)
+		respondWithError(w, http.StatusInternalServerError, "Error reading file", err)
 		return
 	}
 
@@ -59,12 +62,12 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if dbVideo.UserID != userID {
-		respondWithError(w, http.StatusUnauthorized, "User not authorized to get video data", err)
+		respondWithError(w, http.StatusUnauthorized, "Not authorized to update this video", err)
 		return
 	}
 
 	strData := base64.StdEncoding.EncodeToString(fileData)
-	dataURL := fmt.Sprintf("data:%s;base64,%s", fileType, strData)
+	dataURL := fmt.Sprintf("data:%s;base64,%s", mediaType, strData)
 	dbVideo.ThumbnailURL = &dataURL
 
 	err = cfg.db.UpdateVideo(dbVideo)
