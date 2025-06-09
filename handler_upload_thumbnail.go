@@ -1,12 +1,9 @@
 package main
 
 import (
-	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/database"
@@ -51,16 +48,21 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		respondWithError(w, http.StatusBadRequest, "Missing Content-Type for thumbnail", nil)
 		return
 	}
-	splitMediaType := strings.Split(mediaType, "/")
-	fileExt := splitMediaType[1]
 
-	/*
-		 * fileData, err := io.ReadAll(file)
-			if err != nil {
-				respondWithError(w, http.StatusInternalServerError, "Error reading file", err)
-				return
-			}
-	*/
+	assetPath := getAssetPath(videoID, mediaType)
+	assetDiskPath := cfg.getAssetDiskPath(assetPath)
+
+	dst, err := os.Create(assetDiskPath)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Unable to create file on server", err)
+		return
+	}
+	defer dst.Close()
+	_, err = io.Copy(dst, file)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error saving file", err)
+		return
+	}
 
 	dbVideo, err := cfg.db.GetVideo(videoID)
 	if err != nil {
@@ -72,22 +74,8 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	IDType := fmt.Sprintf("%s.%s", videoIDString, fileExt)
-	thumbnailPath := filepath.Join(cfg.assetsRoot, IDType)
-	thumbnailFile, err := os.Create(thumbnailPath)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Unable to create thumbnail file", err)
-		return
-	}
-
-	_, err = io.Copy(thumbnailFile, file)
-	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Unable to copy thumbnail to thumbnail destination file", err)
-		return
-	}
-
-	dataURL := fmt.Sprintf("http://localhost:%s/assets/%s.%s", cfg.port, videoIDString, mediaType)
-	dbVideo.ThumbnailURL = &dataURL
+	url := cfg.getAssetURL(assetPath)
+	dbVideo.ThumbnailURL = &url
 
 	err = cfg.db.UpdateVideo(dbVideo)
 	if err != nil {
