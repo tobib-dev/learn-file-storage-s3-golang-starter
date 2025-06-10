@@ -18,7 +18,7 @@ func (cfg apiConfig) ensureAssetsDir() error {
 
 func getAssetPath(videoID uuid.UUID, mediaType string) string {
 	ext := mediaTypeToExt(mediaType)
-	return fmt.Sprintf("%s.%s", videoID, ext)
+	return fmt.Sprintf("%s%s", videoID, ext)
 }
 
 func (cfg apiConfig) getAssetDiskPath(assetPath string) string {
