@@ -1,10 +1,16 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
 	"io"
+	"log"
 	"mime"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -90,14 +96,16 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	}
 
 	prefix := ""
-	if aspectRatio == "16:9" {
-		prefix = "portrait"
-	} else if aspectRatio == "9:16" {
+	switch aspectRatio {
+	case "16:9":
 		prefix = "landscape"
-	} else {
+	case "9:16":
+		prefix = "portrait"
+	default:
 		prefix = "other"
 	}
-	objectKey := prefix + "/" + fileKey
+
+	objectKey := filepath.Join(prefix, fileKey)
 	_, err = cfg.s3Client.PutObject(r.Context(), &s3.PutObjectInput{
 		Key:         aws.String(objectKey),
 		Bucket:      aws.String(cfg.s3Bucket),
@@ -118,4 +126,42 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	}
 
 	respondWithJSON(w, http.StatusOK, video)
+}
+
+func getVideoAspectRatio(filePath string) (string, error) {
+	cmd := exec.Command("ffprobe", "-v", "error", "-print_format", "json", "-show_streams", filePath)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	var errOut bytes.Buffer
+	cmd.Stderr = &errOut
+
+	if err := cmd.Run(); err != nil {
+		log.Printf("Command error: %v", errOut.String())
+		return "", err
+	}
+
+	type Output struct {
+		Streams []struct {
+			Width  int `json:"width"`
+			Height int `json:"height"`
+		} `json:"streams"`
+	}
+
+	output := Output{}
+	if err := json.Unmarshal(out.Bytes(), &output); err != nil {
+		return "", err
+	}
+
+	if len(output.Streams) == 0 {
+		return "", errors.New("no video streams found")
+	}
+	width := output.Streams[0].Width
+	height := output.Streams[0].Height
+
+	if width == 16*height/9 {
+		return "16:9", nil
+	} else if height == 16*width/9 {
+		return "9:16", nil
+	}
+	return "other", nil
 }
