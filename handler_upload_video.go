@@ -106,18 +106,20 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		prefix = "other"
 	}
 
-	procVideoKey, err := processVideoForFastStart(dst.Name())
+	procFilePath, err := processVideoForFastStart(dst.Name())
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't preprocess video", err)
 		return
 	}
+	defer os.Remove(procFilePath)
 
 	objectKey := filepath.Join(prefix, fileKey)
-	procFile, err := os.Open(procVideoKey)
+	procFile, err := os.Open(procFilePath)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Unable to open processed video file", err)
 		return
 	}
+	defer procFile.Close()
 
 	_, err = cfg.s3Client.PutObject(r.Context(), &s3.PutObjectInput{
 		Key:         aws.String(objectKey),
@@ -180,17 +182,27 @@ func getVideoAspectRatio(filePath string) (string, error) {
 }
 
 func processVideoForFastStart(filePath string) (string, error) {
-	newFilePath := filePath + ".processing"
+	newFilePath := fmt.Sprintf("%s.processing", filePath)
+
 	cmd := exec.Command("ffmpeg", "-i", filePath, "-c", "copy", "-movflags", "faststart", "-f", "mp4", newFilePath)
 
 	var out bytes.Buffer
 	cmd.Stdout = &out
-	var err bytes.Buffer
-	cmd.Stderr = &err
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
 		log.Print("FFmpeg error processing video: %w", err)
-		return "", fmt.Errorf("ffmpeg error: %v", err)
+		return "", fmt.Errorf("Error processing video: %s, %v", stderr.String(), err)
 	}
+
+	fileInfo, err := os.Stat(newFilePath)
+	if err != nil {
+		return "", fmt.Errorf("could not stat processed file: %v", err)
+	}
+	if fileInfo.Size() == 0 {
+		return "", fmt.Errorf("processed file is empty")
+	}
+
 	return newFilePath, nil
 }
